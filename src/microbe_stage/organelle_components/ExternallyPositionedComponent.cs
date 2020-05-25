@@ -43,18 +43,30 @@ public abstract class ExternallyPositionedComponent : IOrganelleComponent
         var membraneCoords = organelle.ParentMicrobe.Membrane.GetExternalOrganelle(exit.x,
             exit.z);
 
+        //if (delta.Equals(new Vector3(0, 0, 0)))
+        //{
+        //    delta = new Vector3(0, 0, -1);
+        //}
+
+        delta = middle - membraneCoords;
+
         if (!membraneCoords.Equals(lastCalculatedPos) || NeedsUpdateAnyway())
         {
             float angle = Mathf.Atan2(-delta.z, delta.x);
-            if (angle < 0)
-            {
-                angle = angle + (2 * Mathf.Pi);
-            }
+
+            //if (angle < 0)
+            //{
+            //    angle = angle + (2 * Mathf.Pi);
+            //}
 
             angle = (angle * 180 / Mathf.Pi - 90) % 360;
 
+            //float angle = organelle.Orientation * -60 + 180;
+
+
             var rotation = MathUtils.CreateRotationForExternal(angle);
 
+            //GD.Print(organelle.Orientation, angle, rotation);
             OnPositionChanged(rotation, angle, membraneCoords);
         }
     }
