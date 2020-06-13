@@ -310,7 +310,7 @@ public static class SpawnHelpers
 public class MicrobeSpawner : Spawner
 {
     private readonly PackedScene microbeScene;
-    private readonly Species species;
+    public readonly Species species;
     private readonly CompoundCloudSystem cloudSystem;
     private readonly GameProperties currentGame;
     private readonly Random random;

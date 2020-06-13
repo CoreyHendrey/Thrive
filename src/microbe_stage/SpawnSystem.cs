@@ -41,7 +41,7 @@ public class SpawnSystem
     ///   This limits the total number of things that can be spawned.
     /// </summary>
     [JsonProperty]
-    private int maxAliveEntities = 1000;
+    private int maxAliveEntities = 10;
 
     /// <summary>
     ///   Max tries per spawner to avoid very high spawn densities lagging
@@ -220,7 +220,7 @@ public class SpawnSystem
         return spawnsLeftThisFrame;
     }
 
-    private void SpawnEntities(Vector3 playerPosition, int existing, int spawnsLeftThisFrame)
+    private void _SpawnEntities(Vector3 playerPosition, int existing, int spawnsLeftThisFrame)
     {
         // If  there are already too many entities, don't spawn more
         if (existing >= maxAliveEntities)
@@ -287,6 +287,66 @@ public class SpawnSystem
                         }
                     }
                 }
+            }
+        }
+    }
+
+    private void SpawnEntities(Vector3 playerPosition, int existing, int spawnsLeftThisFrame)
+    {
+        // If  there are already too many entities, don't spawn more
+        if (existing >= maxAliveEntities)
+            return;
+
+        int spawned = 0;
+
+        int microbeFrequencyTotal = 0;
+        
+        List<MicrobeSpawner> microbeSpawners = new List<MicrobeSpawner>();
+
+        // If max amount of this species spawned (base on its frequency)
+        // then don't allow it to be part of this calculation
+        // TODO: Precompute this
+        foreach (var spawnType in spawnTypes)
+        {
+            if(spawnType is MicrobeSpawner)
+            {
+                // if max spawns not reached
+                // This is just your % of max entities
+                // So if the maxEntites is 1000, and your Frequency is 1 and the total freq of all is 10, 
+                // you will have a cap of 100 spawned
+                int maxSpawnedForSpecies = (int)Math.Floor(1f / (float)microbeFrequencyTotal * (float)maxAliveEntities);
+                if(spawnType.SpawnedCount < maxSpawnedForSpecies)
+                {
+                    GD.Print("Added to spawn list");
+                    microbeSpawners.Add((MicrobeSpawner)spawnType);
+                    microbeFrequencyTotal += spawnType.SpawnFrequency;
+                } else
+                {
+                    GD.Print("Count too high: ", spawnType.SpawnedCount, " / ", maxAliveEntities);
+                }
+            }
+        }
+
+        GD.Print(microbeFrequencyTotal);
+
+        int randNo = random.Next(0, microbeFrequencyTotal);
+        foreach (MicrobeSpawner microbeSpawner in microbeSpawners)
+        {
+            GD.Print("Attempting to spawn ", microbeSpawners);
+            //Create a frequency list for all spawners
+            if(randNo < microbeSpawner.SpawnFrequency)
+            {
+                //Spawn this
+                // Second condition passed. Spawn the entity.
+                if (SpawnWithSpawner(microbeSpawner, playerPosition, existing,
+                    ref spawnsLeftThisFrame, ref spawned))
+                {
+                    GD.Print("Spawned ", microbeSpawner);
+                    return;
+                }
+            } else
+            {
+                randNo -= microbeSpawner.SpawnFrequency;
             }
         }
     }
@@ -370,6 +430,20 @@ public class SpawnSystem
                 entitiesDeleted++;
                 entity.QueueFree();
 
+                if(spawned is Microbe)
+                {
+                    GD.Print("Removed a microbe");
+                    foreach (var spawner in spawnTypes)
+                    {
+                        if(spawner is MicrobeSpawner && ((MicrobeSpawner)spawner).species == ((Microbe)spawned).Species)
+                        {
+                            GD.Print("Lowered spawn count");
+                            spawner.SpawnedCount--;
+                            break;
+                        }
+                    }
+                }
+
                 if (entitiesDeleted >= maxEntitiesToDeletePerStep)
                     break;
             }
@@ -388,6 +462,8 @@ public class SpawnSystem
         // despawning, but apparently it works
         // just fine
         entity.DespawnRadiusSqr = spawnType.SpawnRadiusSqr;
+
+        spawnType.SpawnedCount++;
 
         entity.SpawnedNode.AddToGroup(Constants.SPAWNED_GROUP);
     }

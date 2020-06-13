@@ -30,6 +30,11 @@ public abstract class Spawner
     public bool DestroyQueued { get; set; }
 
     /// <summary>
+    ///   How many entities have I spawned?
+    /// </summary>
+    public int SpawnedCount {get; set; }
+
+    /// <summary>
     ///   Spawns the next thing. This is an enumerator to be able to control how many things to spawn per frame easily
     /// </summary>
     /// <param name="worldNode">The parent node of spawned entities</param>
