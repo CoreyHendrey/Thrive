@@ -41,7 +41,7 @@ public class SpawnSystem
     ///   This limits the total number of things that can be spawned.
     /// </summary>
     [JsonProperty]
-    private int maxAliveEntities = 10;
+    private int maxAliveEntities = 50;
 
     /// <summary>
     ///   Max tries per spawner to avoid very high spawn densities lagging
@@ -280,9 +280,11 @@ public class SpawnSystem
                         previousSquaredDistance > spawnType.SpawnRadiusSqr)
                     {
                         // Second condition passed. Spawn the entity.
+                        // Returns if we can't spawn anything else this frame
                         if (SpawnWithSpawner(spawnType, playerPosition + displacement, existing,
                             ref spawnsLeftThisFrame, ref spawned))
                         {
+                            
                             return;
                         }
                     }
@@ -299,9 +301,19 @@ public class SpawnSystem
 
         int spawned = 0;
 
+        // The total frequency of the microbes that can be spawned
         int microbeFrequencyTotal = 0;
+        float precomputedMicrobeFrequencyTotal = 0f;
         
         List<MicrobeSpawner> microbeSpawners = new List<MicrobeSpawner>();
+
+         foreach (var spawnType in spawnTypes)
+        {
+            if(spawnType is MicrobeSpawner)
+            {
+                precomputedMicrobeFrequencyTotal += spawnType.SpawnFrequency;
+            }
+        }
 
         // If max amount of this species spawned (base on its frequency)
         // then don't allow it to be part of this calculation
@@ -314,15 +326,16 @@ public class SpawnSystem
                 // This is just your % of max entities
                 // So if the maxEntites is 1000, and your Frequency is 1 and the total freq of all is 10, 
                 // you will have a cap of 100 spawned
-                int maxSpawnedForSpecies = (int)Math.Floor(1f / (float)microbeFrequencyTotal * (float)maxAliveEntities);
-                if(spawnType.SpawnedCount < maxSpawnedForSpecies)
+                double maxSpawnedForSpecies = Math.Floor((float)spawnType.SpawnFrequency / (float)precomputedMicrobeFrequencyTotal * (float)maxAliveEntities);
+                if(spawnType.SpawnedCount <= maxSpawnedForSpecies)
                 {
                     GD.Print("Added to spawn list");
                     microbeSpawners.Add((MicrobeSpawner)spawnType);
                     microbeFrequencyTotal += spawnType.SpawnFrequency;
+                    GD.Print(((MicrobeSpawner)spawnType).species.FormattedName, " max count is ", maxSpawnedForSpecies, " freq: ", ((MicrobeSpawner)spawnType).SpawnFrequency);
                 } else
                 {
-                    GD.Print("Count too high: ", spawnType.SpawnedCount, " / ", maxAliveEntities);
+                    GD.Print("Count too high: ", spawnType.SpawnedCount, " / ", maxSpawnedForSpecies);
                 }
             }
         }
@@ -332,18 +345,30 @@ public class SpawnSystem
         int randNo = random.Next(0, microbeFrequencyTotal);
         foreach (MicrobeSpawner microbeSpawner in microbeSpawners)
         {
-            GD.Print("Attempting to spawn ", microbeSpawners);
             //Create a frequency list for all spawners
             if(randNo < microbeSpawner.SpawnFrequency)
             {
+                    float distanceX = (float)random.NextDouble() * microbeSpawner.SpawnRadius -
+                        (float)random.NextDouble() * microbeSpawner.SpawnRadius;
+                    float distanceZ = (float)random.NextDouble() * microbeSpawner.SpawnRadius -
+                        (float)random.NextDouble() * microbeSpawner.SpawnRadius;
+
+                    // Distance from the player.
+                    Vector3 displacement = new Vector3(distanceX, 0, distanceZ);
+
                 //Spawn this
                 // Second condition passed. Spawn the entity.
-                if (SpawnWithSpawner(microbeSpawner, playerPosition, existing,
-                    ref spawnsLeftThisFrame, ref spawned))
+
+                bool done = SpawnWithSpawner(microbeSpawner, playerPosition + displacement, existing,
+                    ref spawnsLeftThisFrame, ref spawned);
+
+                GD.Print("Spawned ", microbeSpawner.species.FormattedName, " count: ", microbeSpawner.SpawnedCount);
+
+                if (done)
                 {
-                    GD.Print("Spawned ", microbeSpawner);
                     return;
                 }
+
             } else
             {
                 randNo -= microbeSpawner.SpawnFrequency;
@@ -362,7 +387,7 @@ public class SpawnSystem
 
         if (enumerable == null)
             return false;
-
+            
         var spawner = enumerable.GetEnumerator();
 
         while (spawner.MoveNext())
@@ -373,6 +398,7 @@ public class SpawnSystem
             // Spawned something
             ProcessSpawnedEntity(spawner.Current, spawnType);
             spawned += 1;
+            spawnType.SpawnedCount += spawned;
             --spawnsLeftThisFrame;
 
             // Check if we are out of quota for this frame
@@ -437,7 +463,7 @@ public class SpawnSystem
                     {
                         if(spawner is MicrobeSpawner && ((MicrobeSpawner)spawner).species == ((Microbe)spawned).Species)
                         {
-                            GD.Print("Lowered spawn count");
+                            GD.Print("Lowered spawn count of ", ((Microbe)spawned).Species.FormattedName);
                             spawner.SpawnedCount--;
                             break;
                         }
@@ -462,8 +488,6 @@ public class SpawnSystem
         // despawning, but apparently it works
         // just fine
         entity.DespawnRadiusSqr = spawnType.SpawnRadiusSqr;
-
-        spawnType.SpawnedCount++;
 
         entity.SpawnedNode.AddToGroup(Constants.SPAWNED_GROUP);
     }
