@@ -308,19 +308,21 @@ public class Membrane : MeshInstance
     /// </summary>
     private float CalculateEncompassingCircleRadius()
     {
-        if (Dirty)
-            Update();
+        // if (Dirty)
+        //     Update();
 
-        float distanceSquared = 0;
+        // float distanceSquared = 0;
 
-        foreach (var vertex in vertices2D)
-        {
-            var currentDistance = vertex.LengthSquared();
-            if (currentDistance > distanceSquared)
-                distanceSquared = currentDistance;
-        }
+        // foreach (var vertex in vertices2D)
+        // {
+        //     var currentDistance = vertex.LengthSquared();
+        //     if (currentDistance > distanceSquared)
+        //         distanceSquared = currentDistance;
+        // }
 
-        return Mathf.Sqrt(distanceSquared);
+        // return Mathf.Sqrt(distanceSquared);
+
+        return 1;
     }
 
     /// <summary>
@@ -329,7 +331,7 @@ public class Membrane : MeshInstance
     private void Update()
     {
         Dirty = false;
-        InitializeMesh();
+        MarchingSquares();
         ApplyAllMaterialParameters();
     }
 
@@ -393,11 +395,268 @@ public class Membrane : MeshInstance
         MaterialToEdit.SetShaderParam("dissolveValue", DissolveEffectValue);
     }
 
+    List<Vector3> vertices = new List<Vector3>();
+    List<int> indices = new List<int>();
+    private void MarchingSquares()
+    {
+        // For preview scenes, add just one organelle
+        if (OrganellePositions == null)
+        {
+            OrganellePositions = new List<Vector2> { Vector2.Zero };
+        }
+
+        foreach(Vector2 op in OrganellePositions)
+        {
+              //DEBUG GRID ----------
+                var m = new MeshInstance();
+                m.Mesh = new SphereMesh();
+                m.Scale = new Vector3(0.1f, 0.1f, 0.1f);
+                m.Translation = new Vector3(op.x, 0, op.y);
+                AddChild(m);
+        }
+
+        //Initialize grid. 
+        int top = 0;
+        int bottom = 0;
+        int left = 0;
+        int right = 0;
+        //Find top left and bottom right organelle
+        //This is so we know how large to make out grid
+        foreach (var pos in OrganellePositions)
+        {
+            if(pos.x < left)
+                left = (int) pos.x;
+            if(pos.y < top)
+                top = (int) pos.y;
+            if(pos.x > right)
+                right = (int) pos.x;
+            if(pos.x > bottom)
+                bottom = (int) pos.y;
+        }
+        int padding = 5;
+        int height = bottom - top + padding;
+        int width = right - left + padding;
+
+        left -= padding;
+        top -= padding;
+
+        GD.Print("Grid is: " + width + " x " + height);
+        GD.Print("Top/Right/Bottom/Left: " + top + ", " + right + ", " + bottom + ", " + left);
+
+        int meshRes = 10; //How many vertices per hex
+        float size = 5f/meshRes;
+
+        List<MembraneVertex> membraneGrid = new List<MembraneVertex>();
+        float radius = 1.5f;
+
+        //Build the grid of possible vertices
+        for(int index = 0, y = 0; y < meshRes; ++y, ++index)
+        {
+            for(int x = 0; x < meshRes; ++x, ++index)
+            {
+                MembraneVertex membraneVertex = new MembraneVertex(new Vector3((left + x + 0.5f) * size, 0, (top + y + 0.5f) * size));
+                membraneGrid.Add(membraneVertex);
+
+                //DEBUG GRID ----------
+
+                var m = new MeshInstance();
+                m.Mesh = new CubeMesh();
+                m.Scale = new Vector3(0.02f, 0.02f, 0.02f);
+                m.Translation = membraneVertex.position;
+                AddChild(m);
+
+                //Find the distance to the closest organelle for this vertex
+                float closestDistance = float.MaxValue;
+                foreach(Vector2 position in OrganellePositions)
+                {
+                    float d = position.DistanceTo(new Vector2(membraneVertex.position.x, membraneVertex.position.z));
+                    if(d < closestDistance)
+                    {
+                        closestDistance = d;
+                    }
+                }
+
+                if(closestDistance < radius)
+                {
+                    m.Scale = new Vector3(0.06f, 0.06f, 0.06f);
+                }
+
+                membraneVertex.distanceToClosestPoint = closestDistance;
+            }
+        }
+
+        int cells = meshRes - 1;
+       
+        for (int index = 0, y = 0; y < cells; ++y, ++index)
+        {
+            for (int x = 0; x < cells; ++x, ++index)
+            {
+                //Triangulate the current cell
+                MembraneVertex c = membraneGrid[index];
+                MembraneVertex d = membraneGrid[index + 1];
+                MembraneVertex a = membraneGrid[index + meshRes];
+                MembraneVertex b = membraneGrid[index + meshRes + 1];
+
+                 a.xEdge = new MembraneVertex(new Vector3(LerpBetweenVerticesX(a, b, radius), 0, a.position.z));
+                 a.yEdge = new MembraneVertex(new Vector3(a.position.x, 0, LerpBetweenVerticesY(a, c, radius)));
+                 c.xEdge = new MembraneVertex(new Vector3(LerpBetweenVerticesX(c, d, radius), 0, c.position.z));
+                 b.yEdge = new MembraneVertex(new Vector3(b.position.x, 0, LerpBetweenVerticesY(b, d, radius)));
+
+                //a.xEdge = new MembraneVertex(new Vector3(a.position.x += size * 0.5f,   0, a.position.z));
+                //a.yEdge = new MembraneVertex(new Vector3(a.position.x,                  0, a.position.z += size * 0.5f));
+                //c.xEdge = new MembraneVertex(new Vector3(c.position.x += size * 0.5f,   0, c.position.z));
+                //b.yEdge = new MembraneVertex(new Vector3(b.position.x,                 0, b.position.z += size * 0.5f));
+
+                int cellType = 0;
+                if (a.distanceToClosestPoint < radius)
+                {
+                    cellType |= 1;
+                }
+                if (b.distanceToClosestPoint < radius)
+                {
+                    cellType |= 2;
+                }
+                if (c.distanceToClosestPoint < radius)
+                {
+                    cellType |= 4;
+                }
+                if (d.distanceToClosestPoint < radius)
+                {
+                    cellType |= 8;
+                }
+
+                switch (cellType)
+                {
+                    case 0:
+                        break;
+                    case 1:
+                        AddTriangle(a, a.yEdge, a.xEdge);
+                        break;
+                    case 2:
+                        AddTriangle(b, a.xEdge, b.yEdge);
+                        break;
+                    case 4:
+                        AddTriangle(c, c.xEdge, a.yEdge);
+                        break;
+                    case 8:
+                        AddTriangle(d, b.yEdge, c.xEdge);
+                        break;
+                    case 3:
+                        AddQuad(a, a.yEdge, b.yEdge, b);
+                        break;
+                    case 5:
+                        AddQuad(a, c, c.xEdge, a.xEdge);
+                        break;
+                    case 10:
+                        AddQuad(a.xEdge, c.xEdge, d, b);
+                        break;
+                    case 12:
+                        AddQuad(a.yEdge, c, d, b.yEdge);
+                        break;
+                    case 15:
+                        AddQuad(a, c, d, b);
+                        break;
+                    case 7:
+                        AddPentagon(a, c, c.xEdge, b.yEdge, b);
+                        break;
+                    case 11:
+                        AddPentagon(b, a, a.yEdge, c.xEdge, d);
+                        break;
+                    case 13:
+                        AddPentagon(c, d, b.yEdge, a.xEdge, a);
+                        break;
+                    case 14:
+                        AddPentagon(d, b, a.xEdge, a.yEdge, c);
+                        break;
+                    case 6:
+                        AddTriangle(b, a.xEdge, b.yEdge);
+                        AddTriangle(c, c.xEdge, a.yEdge);
+                        break;
+                    case 9:
+                        AddTriangle(a, a.yEdge, a.xEdge);
+                        AddTriangle(d, b.yEdge, c.xEdge);
+                        break;
+
+                }
+            }
+        }
+
+        GD.Print("Mesh created.");
+
+        var arrays = new Array();
+        arrays.Resize((int)Mesh.ArrayType.Max);
+
+        //Temp: Swap Y and Z
+        List<Vector3> newV = new List<Vector3>();
+        List<Vector2> uvs = new List<Vector2>();
+        Vector2 center = new Vector2(0.5f, 0.5f);
+        int i = 0;
+        foreach(Vector3 v in vertices)
+        {
+            float currentRadians = Mathf.Pi * i / vertices.Count;
+            uvs.Add(center + new Vector2(Mathf.Cos(currentRadians), Mathf.Sin(currentRadians)) / 2);
+            i++;
+        }
+
+        arrays[(int)Mesh.ArrayType.Vertex] = vertices.ToArray();
+        arrays[(int)Mesh.ArrayType.Index] = indices.ToArray();
+        arrays[(int)Mesh.ArrayType.TexUv] = uvs.ToArray();
+
+        // Create the mesh
+        var generatedMesh = new ArrayMesh();
+
+        var surfaceIndex = generatedMesh.GetSurfaceCount();
+        generatedMesh.AddSurfaceFromArrays(Mesh.PrimitiveType.Triangles, arrays);
+
+        // Apply the mesh to us
+        Mesh = generatedMesh;
+        //SetSurfaceMaterial(surfaceIndex, MaterialToEdit);
+
+    }
+
+    private void AddTriangle(MembraneVertex a, MembraneVertex b, MembraneVertex c)
+    {
+        int vid = vertices.Count;
+        MembraneVertex[] vArray = { a, b, c };
+        for (int i = 0; i < vArray.Length; ++i)
+        {
+            vertices.Add(vArray[i].position);
+            indices.Add(vid++);
+        }
+    }
+
+    private void AddQuad(MembraneVertex a, MembraneVertex b, MembraneVertex c, MembraneVertex d)
+    {
+        AddTriangle(a, b, c);
+        AddTriangle(a, c, d);
+    }
+
+    private void AddPentagon(MembraneVertex a, MembraneVertex b, MembraneVertex c, MembraneVertex d, MembraneVertex e)
+    {
+        AddTriangle(a, b, c);
+        AddTriangle(a, c, d);
+        AddTriangle(a, d, e);
+    }
+
+    private float LerpBetweenVerticesY(MembraneVertex a, MembraneVertex b, float d)
+    {
+        return b.position.z + (a.position.z - b.position.z) * ((d - b.distanceToClosestPoint) / (a.distanceToClosestPoint - b.distanceToClosestPoint));
+    }
+
+    private float LerpBetweenVerticesX(MembraneVertex a, MembraneVertex b, float d)
+    {
+        return b.position.x + (a.position.x - b.position.x) * ((d - b.distanceToClosestPoint) / (a.distanceToClosestPoint - b.distanceToClosestPoint));
+    }
+
     /// <summary>
     ///   First generates the 2D vertices and then builds the 3D mesh
     /// </summary>
     private void InitializeMesh()
     {
+        MarchingSquares();
+
+
+
         // For preview scenes, add just one organelle
         if (OrganellePositions == null)
         {
@@ -629,5 +888,26 @@ public class Membrane : MeshInstance
         // Replace the old vertex data with the new data. This may be
         // faster than copying the data back
         vertices2D = newPositions;
+    }
+}
+
+public class MembraneVertex
+{
+    public Vector3 position;
+    public MembraneVertex xEdge;
+    public  MembraneVertex yEdge;
+    public float distanceToClosestPoint;
+    public int index;
+    public MembraneVertex(Vector3 position, MembraneVertex xEdge, MembraneVertex yEdge)
+    {
+        this.position = position;
+        this.xEdge = xEdge;
+        this.yEdge = yEdge;
+        distanceToClosestPoint = float.MaxValue;
+    }
+
+    public MembraneVertex(Vector3 position)
+        : this(position, null, null)
+    {
     }
 }
